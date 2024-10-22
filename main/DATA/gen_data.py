@@ -28,7 +28,7 @@ def gen_data(N, a_range, x_range, dist, fidelity):
 
     data = np.column_stack((a_values, x_values, f_values))
 
-    output_dir = os.path.join(dist, fidelity)
+    output_dir = os.path.join(fidelity, dist)
     os.makedirs(output_dir, exist_ok=True)
     np.save(os.path.join(output_dir, 'data.npy'), data)
 

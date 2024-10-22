@@ -1,5 +1,3 @@
-# TODO: tensorboard
-
 import torch
 import utils, networks, train
 
@@ -19,10 +17,10 @@ def main():
     optimizer = utils.get_optimizer(args.optimizer, model, args.lr)
     loss_fn = utils.get_loss_fn(args.loss_fn)
     device = utils.get_device(args.device)
-    save_path = utils.get_model_save_path(args)
+    save_path, log_path = utils.get_save_log_path(args)
 
     train.train_model(model, train_data, val_data, optimizer, loss_fn, device, 
-                      args.epochs, args.val_interval, save_path)
+                      args.epochs, args.val_interval, save_path, log_path)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ class MYDATA(Dataset):
 
 
 def get_data(args):
-    """Gets the data for training or transfer learning.
+    """ Gets the data for training or transfer learning.
     """
     def data_loader(dist, fidelity, tl=False):
         data = np.load(rf".\data\{fidelity}\{dist}\data.npy")
@@ -112,7 +112,7 @@ def prepare_args():
                         help='Batch size for training')
     parser.add_argument('--lr', type=float, default=config.get('lr', 1e-3), 
                         help='Learning rate for the optimizer')
-    parser.add_argument('--val_interval', type=int, default=config.get('val_interval', 50), 
+    parser.add_argument('--val_interval', type=int, default=config.get('val_interval', 1), 
                         help='Validation interval in terms of epochs')
     parser.add_argument('--seed', type=int, default=config.get('seed', 42), 
                         help='Random seed for reproducibility')
@@ -154,28 +154,33 @@ def get_loss_fn(loss_fn):
     return loss_fn
 
 
-def get_model_dir(args, fidelity=None):
+def get_model_name(args):
+    model_name = "{}_{}_{}_{}_{}_{}_{}".format(
+        args.model, 
+        args.activation, 
+        args.optimizer, 
+        args.loss_fn,
+        args.epochs,
+        args.batch_size,
+        "{:.0e}".format(args.lr) #* KEEP ONLY ONE significant digit for lr
+        )
+    
+    if args.model == 'MLP':
+        model_name += f"_{'_'.join(map(str, args.dim_layers))}"
+    
+    return model_name
 
-    def get_model_name(args):
-        model_name = "{}_{}_{}_{}_{}_{}_{}".format(
-            args.model, 
-            args.activation, 
-            args.optimizer, 
-            args.loss_fn,
-            args.epochs,
-            args.batch_size,
-            "{:.0e}".format(args.lr) # KEEP ONLY ONE significant digit for lr
-            )
-        if args.model == 'MLP':
-            model_name += f"_{'_'.join(map(str, args.dim_layers))}"
-        return model_name
 
+def get_model_dir(args, log=False, fidelity=None, model_name=None):
+    logs = 'logs' if log else 'models'
     fidelity = args.fidelity if fidelity is None else fidelity
+    model_name = get_model_name(args) if model_name is None else model_name
 
-    model_path = "./models/{}/{}/{}/".format(
+    model_path = "./{}/{}/{}/{}/".format(
+        logs,
         fidelity, 
         args.dist, 
-        get_model_name(args)
+        model_name
         )
     
     return model_path
@@ -184,7 +189,7 @@ def get_model_dir(args, fidelity=None):
 def get_tl_load_path(args):
     """ Find the latest .pth file based on the timestamp in the loading directory"""
     lower_fidelity, _ = get_tl_fidelity(args.fidelity)
-    load_dir = get_model_dir(args, lower_fidelity)
+    load_dir = get_model_dir(args, fidelity=lower_fidelity)
     if os.path.exists(load_dir):
         pth_files = [f for f in os.listdir(load_dir) if f.endswith('.pth')]
         if pth_files:
@@ -198,10 +203,21 @@ def get_tl_load_path(args):
     return load_path
 
 
-def get_model_save_path(args):
-    save_dir = get_model_dir(args)
-    save_path = os.path.join(save_dir, datetime.now().strftime("%Y%m%d_%H%M%S") + ".pth")
-    return save_path
+def get_save_log_path(args):
+    """ Returns the save path and log directory for the model. 
+        The two paths are based on the same timestamp.
+    """
+    model_name = get_model_name(args)
+
+    save_dir = get_model_dir(args, model_name=model_name)
+    log_dir = get_model_dir(args, log=True, model_name=model_name)
+
+    time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    save_path = os.path.join(save_dir, time_stamp + ".pth")
+    log_dir = os.path.join(log_dir, time_stamp)
+
+    return save_path, log_dir
 
 
 def get_tl_fidelity(fidelity):

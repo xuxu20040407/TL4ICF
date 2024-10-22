@@ -1,5 +1,5 @@
+import os
 import torch
-
 
 def train_model(model, train_data, val_data, optimizer, loss_fn, device, 
                 epochs=1000, val_interval=50, save_path=None):
@@ -7,7 +7,7 @@ def train_model(model, train_data, val_data, optimizer, loss_fn, device,
     
     for epoch in range(epochs):
         model.train()
-        for batch_idx, (Prob, label) in enumerate(train_data):
+        for Prob, label in train_data:
             Prob, label = Prob.to(device), label.to(device)
             optimizer.zero_grad()
             output = model(Prob)
@@ -24,6 +24,8 @@ def train_model(model, train_data, val_data, optimizer, loss_fn, device,
                     output = model(Prob)
                     val_loss += loss_fn(output.squeeze(1), label).item()
                 val_loss /= len(val_data)
-            print(f"Epoch: {epoch}, Training Loss: {result.item()}, Validation Loss: {val_loss}")
+            print(f"Epoch: {epoch}, Train Loss: {result.item()}, Val Loss: {val_loss}")
     
-    torch.save(model.state_dict(), f'{save_path}model.pth')
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(model.state_dict(), save_path)
+    print(f"Model saved at {save_path}")

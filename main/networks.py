@@ -1,7 +1,6 @@
 from collections import OrderedDict
 from torch import nn
-
-from utils import get_activation_func
+from torch.nn import PReLU, ReLU
 
 
 class MLP(nn.Module):
@@ -62,6 +61,16 @@ class LSTM(nn.Module):
         output, _ = self.lstm(input)
         output = self.activation(output)
         return output
+
+
+def get_activation_func(activation):
+    if activation == 'PReLU':
+        activation_func = PReLU()
+    elif activation == 'ReLU':
+        activation_func = ReLU()
+    else:
+        raise ValueError("Invalid activation function. Please choose either 'PReLU' or 'ReLU'.")
+    return activation_func
 
 
 def get_model(args):

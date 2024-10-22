@@ -10,7 +10,6 @@ epochs: 1001
 batch_size: 64
 lr: 0.001
 val_interval: 50
-save_path: './models/'
 seed: 42
 device: cuda
 mode: train

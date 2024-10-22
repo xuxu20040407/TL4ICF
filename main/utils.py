@@ -1,9 +1,10 @@
+import os
 import yaml
 import argparse
+from datetime import datetime
 
 import numpy as np
 import torch
-from torch.nn import PReLU, ReLU
 from torch.utils.data import DataLoader, Dataset, random_split
 
 
@@ -31,80 +32,108 @@ class MYDATA(Dataset):
         return normalized_data * (self.max_vals - self.min_vals) + self.min_vals
 
 
-def data_loader(dist, fidelity, tl=False):
-    """ Loads data from a specified distribution and fidelity, optionally applying transfer learning.
-
-    Args:
-        dist (str): The distribution type of the data.
-        fidelity (str): The fidelity level of the data.
-        tl (bool, optional): If True, apply transfer learning by using only the first 5% of the data. Defaults to False.
-
-    Returns:
-        tuple: A tuple containing the training and validation DataLoader objects.
+def get_data(args):
+    """Gets the data for training or transfer learning.
     """
-    data = np.load(rf".\data\{dist}\{fidelity}\data.npy")
-    if tl:
-        data = data[:int(0.05 * data.shape[0]), :]  # Take only the first 5% of the data along the first dimension
-    dataset = MYDATA(data)
-    
-    # Split the dataset into training and validation sets (80:20 ratio)
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
-    if tl:
-        train_dataloader = DataLoader(train_dataset, batch_size=len(train_dataset), shuffle=True)
-        val_dataloader = DataLoader(val_dataset, batch_size=len(val_dataset))
+    def data_loader(dist, fidelity, tl=False):
+        data = np.load(rf".\data\{fidelity}\{dist}\data.npy")
+        if tl:
+            data = data[:int(0.05 * data.shape[0]), :]  # Take only the first 5% of the data along the first dimension
+        dataset = MYDATA(data)
+        
+        # Split the dataset into training and validation sets (80:20 ratio)
+        train_size = int(0.8 * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        
+        if tl:
+            train_data = DataLoader(train_dataset, batch_size=len(train_dataset), shuffle=True)
+            val_data = DataLoader(val_dataset, batch_size=len(val_dataset))
+        else:
+            train_data = DataLoader(train_dataset, batch_size=64, drop_last=True, shuffle=True)
+            val_data = DataLoader(val_dataset, batch_size=64, drop_last=True)
+        
+        return train_data, val_data
+
+    if args.mode == 'train':
+        if args.fidelity == 'low' or 'high' or 'exp':
+            train_data, val_data = data_loader(args.dist, args.fidelity)
+        else:
+            raise ValueError("Invalid fidelity for train mode. Please choose either 'low', 'high', or 'exp'.")
+    elif args.mode == 'tl':
+        if args.fidelity == 'low2high' or 'low2exp' or 'high2exp' or 'low2high2exp':
+            _, higher_fidelity = get_tl_fidelity(args.fidelity)
+            train_data, val_data = data_loader(args.dist, higher_fidelity, tl=True)
+        else:
+            raise ValueError("Invalid fidelity for tl mode. Please choose either 'low2high', 'low2exp', 'high2exp', or 'low2high2exp'.")
     else:
-        train_dataloader = DataLoader(train_dataset, batch_size=64, drop_last=True, shuffle=True)
-        val_dataloader = DataLoader(val_dataset, batch_size=64, drop_last=True)
-    return train_dataloader, val_dataloader
-
-
-def prepare_args(config_file='mlp'):
-    """ Prepares the arguments for the training process from a YAML configuration file.
+        raise ValueError("Invalid mode. Please choose either 'train' or 'tl'.")
     
-    Args:
-        config_file (str): Path to the YAML configuration file. Defaults to 'config.yaml'.
+    return train_data, val_data
+
+
+def prepare_args():
+    """ Prepares the arguments for the training process from a YAML configuration file.
     
     Returns:
         argparse.Namespace: An object containing the configuration parameters.
     """
+    def get_mode(fidelity):
+        if fidelity in ['low', 'high', 'exp']:
+            return 'train'
+        elif fidelity in ['low2high', 'low2exp', 'high2exp', 'low2high2exp']:
+            return 'tl'
+        else:
+            raise ValueError("Invalid fidelity.")
+    
     parser = argparse.ArgumentParser(description='DEMO for Transfer Learning for ICF')
     
-    with open(rf'.\configs\{config_file}.yaml', 'r') as file:
+    parser.add_argument('--config', type=str, default='./configs/mlp.yaml', help='Configuration file to use')
+    with open(parser.parse_known_args()[0].config, 'r') as file:
         config = yaml.safe_load(file)
-    
-    parser.add_argument('--config', type=str, default=config_file, help='Configuration file to use')
-    parser.add_argument('--dist', type=str, default=config.get('dist', 'random'), help='Distribution type of the data')
-    parser.add_argument('--fidelity', type=str, default=config.get('fidelity', 'low'), help='Fidelity level of the data')
-    parser.add_argument('--model', type=str, default=config.get('model', 'MLP'), help='Model type to use for training')
-    parser.add_argument('--dim_layers', type=int, nargs='+', default=config.get('dim_layers', [2, 10, 10, 10, 5, 1]), help='Dimensions of the layers in the model')
-    parser.add_argument('--activation', type=str, default=config.get('activation', 'PReLU'), help='Activation function to use in the model, PReLU or ReLU')
-    parser.add_argument('--optimizer', type=str, default=config.get('optimizer', 'Adam'), help='Optimizer to use: Adam, SGD')
-    parser.add_argument('--loss_fn', type=str, default=config.get('loss_fn', 'MSE'), help='Loss function to use: MSE')
-    parser.add_argument('--epochs', type=int, default=config.get('epochs', 1001), help='Number of epochs to train the model')
-    parser.add_argument('--batch_size', type=int, default=config.get('batch_size', 64), help='Batch size for training')
-    parser.add_argument('--lr', type=float, default=config.get('lr', 1e-3), help='Learning rate for the optimizer')
-    parser.add_argument('--val_interval', type=int, default=config.get('val_interval', 50), help='Validation interval in terms of epochs')
-    parser.add_argument('--save_path', type=str, default=config.get('save_path', './models/'), help='Path to save trained model')
-    parser.add_argument('--load_path', type=str, default=config.get('load_path', './models/'), help='Path to load pre-trained model for transfer learning')
-    parser.add_argument('--seed', type=int, default=config.get('seed', 42), help='Random seed for reproducibility')
-    parser.add_argument('--device', type=str, default=config.get('device', 'cuda'), help='Device to use for training: cuda or cpu')
-    parser.add_argument('--mode', type=str, default=config.get('mode', 'train'), help='Mode to run the script: train or tl')
+
+    parser.add_argument('--dist', type=str, default=config.get('dist', 'random'), 
+                        help='Distribution type of the data, random or uniform')
+    parser.add_argument('--fidelity', type=str, default=config.get('fidelity', 'low'), 
+                        help='Fidelity level of the data, low, high, exp, low2high, low2exp, high2exp or low2high2exp')
+    parser.add_argument('--model', type=str, default=config.get('model', 'MLP'), 
+                        help='Model type to use for training, MLP, CNN, RNN or LSTM')
+    parser.add_argument('--dim_layers', type=int, nargs='+', default=config.get('dim_layers', [2, 10, 10, 10, 5, 1]), 
+                        help='Dimensions of the layers in the model')
+    parser.add_argument('--activation', type=str, default=config.get('activation', 'PReLU'), 
+                        help='Activation function to use in the model, PReLU or ReLU')
+    parser.add_argument('--optimizer', type=str, default=config.get('optimizer', 'Adam'), 
+                        help='Optimizer to use: Adam, SGD')
+    parser.add_argument('--loss_fn', type=str, default=config.get('loss_fn', 'MSE'), 
+                        help='Loss function to use: MSE')
+    parser.add_argument('--epochs', type=int, default=config.get('epochs', 1001), 
+                        help='Number of epochs to train the model')
+    parser.add_argument('--batch_size', type=int, default=config.get('batch_size', 64), 
+                        help='Batch size for training')
+    parser.add_argument('--lr', type=float, default=config.get('lr', 1e-3), 
+                        help='Learning rate for the optimizer')
+    parser.add_argument('--val_interval', type=int, default=config.get('val_interval', 50), 
+                        help='Validation interval in terms of epochs')
+    parser.add_argument('--seed', type=int, default=config.get('seed', 42), 
+                        help='Random seed for reproducibility')
+    parser.add_argument('--device', type=str, default=config.get('device', 'default'), 
+                        help='Device to use for training, cuda or cpu, default for choosing automatically')
+
+    parser.add_argument('--mode', type=str, default=get_mode(parser.parse_known_args()[0].fidelity), 
+                        help='Mode to run the script: train or tl')
 
     args = parser.parse_args()
     return args
 
 
-def get_activation_func(activation):
-    if activation == 'PReLU':
-        activation_func = PReLU()
-    elif activation == 'ReLU':
-        activation_func = ReLU()
+def get_device(device):
+    if device == 'default':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    elif device == 'cuda' or 'cpu':
+        device = torch.device(device)
     else:
-        raise ValueError("Invalid activation function. Please choose either 'PReLU' or 'ReLU'.")
-    return activation_func
+        raise ValueError("Invalid device. Please choose either 'cuda' or 'cpu', or 'default' for automatic selection.")
+    return device
 
 
 def get_optimizer(optimizer, model, lr):
@@ -125,6 +154,67 @@ def get_loss_fn(loss_fn):
     return loss_fn
 
 
-def get_model_name(args):
-    model_name = f"{args.model}_{'_'.join(map(str, args.dim_layers))}_{args.activation}_{args.optimizer}_{args.loss_fn}"
-    return model_name
+def get_model_dir(args, fidelity=None):
+
+    def get_model_name(args):
+        model_name = "{}_{}_{}_{}_{}_{}_{}".format(
+            args.model, 
+            args.activation, 
+            args.optimizer, 
+            args.loss_fn,
+            args.epochs,
+            args.batch_size,
+            "{:.0e}".format(args.lr) # KEEP ONLY ONE significant digit for lr
+            )
+        if args.model == 'MLP':
+            model_name += f"_{'_'.join(map(str, args.dim_layers))}"
+        return model_name
+
+    fidelity = args.fidelity if fidelity is None else fidelity
+
+    model_path = "./models/{}/{}/{}/".format(
+        fidelity, 
+        args.dist, 
+        get_model_name(args)
+        )
+    
+    return model_path
+
+
+def get_tl_load_path(args):
+    """ Find the latest .pth file based on the timestamp in the loading directory"""
+    lower_fidelity, _ = get_tl_fidelity(args.fidelity)
+    load_dir = get_model_dir(args, lower_fidelity)
+    if os.path.exists(load_dir):
+        pth_files = [f for f in os.listdir(load_dir) if f.endswith('.pth')]
+        if pth_files:
+            latest_file = max(pth_files, key=lambda x: datetime.strptime(x.split('.')[0], "%Y%m%d_%H%M%S"))
+            load_path = os.path.join(load_dir, latest_file)
+        else:
+            raise FileNotFoundError("No .pth files found in the directory.")
+    else:
+        raise FileNotFoundError(f"The directory {load_path} does not exist.")
+    print(f"Loading model from {load_path}")
+    return load_path
+
+
+def get_model_save_path(args):
+    save_dir = get_model_dir(args)
+    save_path = os.path.join(save_dir, datetime.now().strftime("%Y%m%d_%H%M%S") + ".pth")
+    return save_path
+
+
+def get_tl_fidelity(fidelity):
+    """ Returns the tuple of fidelity levels (source, target) for transfer learning.
+    """
+    if fidelity == 'low2high':
+        tl_fidelity = ('low', 'high')
+    elif fidelity == 'low2exp':
+        tl_fidelity = ('low', 'exp')
+    elif fidelity == 'high2exp':
+        tl_fidelity = ('high', 'exp')
+    elif fidelity == 'low2high2exp':
+        tl_fidelity = ('low2high', 'exp')
+    else:
+        raise ValueError("Invalid fidelity of tl. Please choose either 'low2high', 'low2exp', 'high2exp' or 'low2high2exp'.")
+    return tl_fidelity

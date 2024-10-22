@@ -1,30 +1,28 @@
 # TODO: tensorboard
 
 import torch
-
-from utils import prepare_args, data_loader, get_optimizer, get_loss_fn
-from networks import get_model
-from train import train_model
+import utils, networks, train
 
 
 def main():
-    args = prepare_args()
+    args = utils.prepare_args()
+    model = networks.get_model(args)
 
-    model = get_model(args)
+    # Load the lower fidelity model for transfer learning
+    if args.mode == 'tl': 
+        tl_load_path = utils.get_tl_load_path(args)
+        model.load_state_dict(torch.load(tl_load_path)) 
 
-    if args.mode == 'train':
-        train_data, val_data = data_loader(args.dist, args.fidelity)
-    elif args.mode == 'tl':
-        model.load_state_dict(torch.load(f'{args.load_path}model.pth'))
-        train_data, val_data = data_loader(args.dist, args.fidelity, tl=True)
-    else:
-        raise ValueError("Invalid mode. Please choose either 'train' or 'tl'.")
-    
-    optimizer = get_optimizer(args.optimizer, model, args.lr)
-    loss_fn = get_loss_fn(args.loss_fn)
+    # The loading method varies depending on args.mode
+    train_data, val_data = utils.get_data(args) 
 
-    train_model(model, train_data, val_data, optimizer, loss_fn, 
-                args.device, args.epochs, args.val_interval, args.save_path)
+    optimizer = utils.get_optimizer(args.optimizer, model, args.lr)
+    loss_fn = utils.get_loss_fn(args.loss_fn)
+    device = utils.get_device(args.device)
+    save_path = utils.get_model_save_path(args)
+
+    train.train_model(model, train_data, val_data, optimizer, loss_fn, device, 
+                      args.epochs, args.val_interval, save_path)
 
 
 if __name__ == "__main__":

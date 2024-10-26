@@ -1,5 +1,5 @@
 import torch
-import utils, networks, train
+import utils, networks, train, plot
 
 
 def main():
@@ -12,15 +12,17 @@ def main():
         model.load_state_dict(torch.load(tl_load_path)) 
 
     # The loading method varies depending on args.mode
-    train_data, val_data = utils.get_data(args) 
+    train_data, val_data, data_range = utils.get_data(args) 
 
     optimizer = utils.get_optimizer(args.optimizer, model, args.lr)
     loss_fn = utils.get_loss_fn(args.loss_fn)
     device = utils.get_device(args.device)
-    save_path, log_path = utils.get_save_log_path(args)
+    save_path, log_path, plot_path = utils.get_save_log_plot_path(args)
 
     train.train_model(model, train_data, val_data, optimizer, loss_fn, device, 
                       args.epochs, args.val_interval, save_path, log_path)
+    
+    plot.plot_pre_exp_results(args, val_data, data_range, device, save_path, plot_path)
 
 
 if __name__ == "__main__":

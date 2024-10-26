@@ -37,9 +37,9 @@ def get_data(args):
     """
     def data_loader(dist, fidelity, tl=False):
         data = np.load(rf".\data\{fidelity}\{dist}\data.npy")
-        if tl:
-            data = data[:int(0.05 * data.shape[0]), :]  # Take only the first 5% of the data along the first dimension
+        data = data[:int(0.05 * data.shape[0]), :] if tl else data # For TL, take only the first 5% of the data
         dataset = MYDATA(data)
+        data_range = [dataset.min_vals[-1], dataset.max_vals[-1]]
         
         # Split the dataset into training and validation sets (80:20 ratio)
         train_size = int(0.8 * len(dataset))
@@ -53,23 +53,26 @@ def get_data(args):
             train_data = DataLoader(train_dataset, batch_size=64, drop_last=True, shuffle=True)
             val_data = DataLoader(val_dataset, batch_size=64, drop_last=True)
         
-        return train_data, val_data
+        return train_data, val_data, data_range
 
     if args.mode == 'train':
         if args.fidelity == 'low' or 'high' or 'exp':
-            train_data, val_data = data_loader(args.dist, args.fidelity)
+            return data_loader(args.dist, args.fidelity)
         else:
             raise ValueError("Invalid fidelity for train mode. Please choose either 'low', 'high', or 'exp'.")
     elif args.mode == 'tl':
         if args.fidelity == 'low2high' or 'low2exp' or 'high2exp' or 'low2high2exp':
             _, higher_fidelity = get_tl_fidelity(args.fidelity)
-            train_data, val_data = data_loader(args.dist, higher_fidelity, tl=True)
+            return data_loader(args.dist, higher_fidelity, tl=True)
         else:
             raise ValueError("Invalid fidelity for tl mode. Please choose either 'low2high', 'low2exp', 'high2exp', or 'low2high2exp'.")
     else:
         raise ValueError("Invalid mode. Please choose either 'train' or 'tl'.")
-    
-    return train_data, val_data
+
+
+def inverse_normalize(normalized_data, data_range): 
+    [min_vals, max_vals] = data_range
+    return normalized_data * (max_vals - min_vals) + min_vals
 
 
 def prepare_args():
@@ -171,13 +174,12 @@ def get_model_name(args):
     return model_name
 
 
-def get_model_dir(args, log=False, fidelity=None, model_name=None):
-    logs = 'logs' if log else 'models'
+def get_model_dir(args, mode='models', fidelity=None, model_name=None):
     fidelity = args.fidelity if fidelity is None else fidelity
     model_name = get_model_name(args) if model_name is None else model_name
 
     model_path = "./{}/{}/{}/{}/".format(
-        logs,
+        mode,
         fidelity, 
         args.dist, 
         model_name
@@ -203,21 +205,21 @@ def get_tl_load_path(args):
     return load_path
 
 
-def get_save_log_path(args):
+def get_save_log_plot_path(args):
     """ Returns the save path and log directory for the model. 
         The two paths are based on the same timestamp.
     """
-    model_name = get_model_name(args)
-
-    save_dir = get_model_dir(args, model_name=model_name)
-    log_dir = get_model_dir(args, log=True, model_name=model_name)
+    save_dir = get_model_dir(args, mode='models')
+    log_dir = get_model_dir(args, mode='logs')
+    plot_dir = get_model_dir(args, mode='plots')
 
     time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     save_path = os.path.join(save_dir, time_stamp + ".pth")
     log_dir = os.path.join(log_dir, time_stamp)
+    plot_dir = os.path.join(plot_dir, time_stamp + "/")
 
-    return save_path, log_dir
+    return save_path, log_dir, plot_dir
 
 
 def get_tl_fidelity(fidelity):
